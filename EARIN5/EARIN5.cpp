@@ -72,6 +72,7 @@ struct Node {
         this->isLeaf = true;
         j.at("parents").get_to(this->parentsNames);
         LoadProbabilities(j.at("probabilities"));
+        LoadPotentialValues();
         nodeValue = "";
         visits = 0;
     }
@@ -404,20 +405,30 @@ struct Network {
         std::vector <std::string> BlanketNames;
         std::vector <std::string> evidenceNodes = splitString(evidence, ',');
 
+        //Holds current values of each node in each iteration
+        std::vector <std::string> nodeValHistory;
+
         //Fill values
             //Get names and values in evidence
          //each holds "NodeName=T"
         
         for (std::string eNode : evidenceNodes) {
-            std::vector <std::string> singleNodeEvidence = splitString(evidenceNodes[0], '=');
+            std::vector <std::string> singleNodeEvidence = splitString(eNode, '=');
             this->nodes.at(FindNodeIterator(this->nodes, singleNodeEvidence[0])).nodeValue = singleNodeEvidence[1];
             evidenceNames.push_back(singleNodeEvidence[0]);
         }
 
+        /*
         for (Node n : this->nodes) {
             if (n.nodeValue != "") continue;
             
             n.SetRandomValue();
+        }
+        */
+
+        for (int a = 0; a < this->nodes.size(); a++) {
+            if (this->nodes.at(a).nodeValue != "") continue;
+            this->nodes.at(a).SetRandomValue();
         }
 
         int index;
@@ -481,15 +492,86 @@ struct Network {
                 }
 
                 //push probP and probC onto vector
-
+                childrenProbs.push_back(probC);
+                this->nodes.at(index).SetNodeValue(savedValue);
             }
 
+            double sumParents=0;
+            for (double p : parentsProbs) {
+                sumParents += p;
+            }
+            double alpha = (1.0) / sumParents;
+            double tmp;
             //alpha = 1/ sum(parentProbs)
             //P(X=xj | MB(X)) = alpha * parentProb[j] * childrenProb[j]
-
+            //for each possible xj calculate P(X=xj | blanket)
+            for (int j = 0; j < parentsProbs.size(); j++) {
+                tmp = (alpha * parentsProbs[j] * childrenProbs[j]);
+                probs.push_back(tmp);
+            }
             //Set value
-
+            double sumProbs = 0;
+            for (double p : probs) {
+                sumProbs += p;
+            }
+            int randInt = rand() % 100000;
+            double randVal = (randInt*sumProbs) / 100000;
+            double offset = 0.0;
+            int iter = 0;
+            for (double p : probs) {
+                offset += p;
+                if (randVal < offset) {
+                    //Set selected node value to appropriate value
+                    this->nodes.at(index).SetNodeValue(potentialValues[iter]);
+                    break;
+                }
+                iter++;
+            }
+            //std::cout << this->nodes.at(index).nodeName << " " << potentialValues[iter] << "\n";
             //Increase counter
+            this->nodes.at(index).visits++;
+
+
+            //Save current node values
+            std::string currentValues = "";
+            for (Node n : this->nodes) {
+                currentValues += n.nodeValue + ",";
+            }
+            nodeValHistory.push_back(currentValues);
+
+        }
+
+        //Unpack and calculate probs from history
+        std::vector <int> occurences;
+        std::vector <std::string> splitHistory;
+        int qIndex = FindNodeIterator(this->nodes,querry);
+        std::string part;
+        int correctIndex;
+        for (int c = 0; c < this->nodes.at(qIndex).potentialValues.size(); c++) {
+            occurences.push_back(0);
+        }
+
+        for (std::string hval : nodeValHistory) {
+            //Split the string into array/vector
+            splitHistory.clear();
+            splitHistory = splitString(hval, ',');
+
+            part = splitHistory[qIndex];
+            correctIndex = 0;
+            for (std::string s : this->nodes.at(qIndex).potentialValues) {
+                if (s == part) {
+                    occurences[correctIndex]++;
+                }
+                correctIndex++;
+            }
+
+        }
+
+        double x;
+        std::cout << this->nodes.at(qIndex).nodeName << " : ";
+        for (int d = 0; d < occurences.size();d++) {
+            x = (double)occurences[d] / (double)iterations;
+            std::cout << " " << this->nodes.at(qIndex).potentialValues[d] << ":" << occurences[d] << "/" << iterations << "=" << x;
         }
 
     }
@@ -512,7 +594,7 @@ int main()
 
     }
     //bNet.PrintBlanket("burglary");
-    bNet.MCMC("NodeName=T,NodeName=F", "NodeName",1000);
+    bNet.MCMC("burglary=T,alarm=T", "earthquake",10000);
 
     //std::cout << bNet.CheckValidity() << "\n";
 
