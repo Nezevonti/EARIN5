@@ -4,7 +4,9 @@
 #include <iostream>
 #include <fstream>
 #include <algorithm>
+#include <vector>
 #include <string>
+#include <time.h>
 #include <nlohmann/json.hpp>
 
 std::vector<std::string> splitString(std::string in, char splitter) {
@@ -56,15 +58,22 @@ struct Probability {
 
 struct Node {
     std::string nodeName;
-    std::vector <std::string> parents;
+    std::vector <std::string> parentsNames;
+    std::vector <std::string> potentialValues;
     std::vector <Probability> probabilities;
+    std::vector <Node*> parents;
+    std::vector <Node*> children;
+    std::string nodeValue;
     bool isLeaf;
+    int visits;
 
     Node(const nlohmann::json& j,std::string key) {
         this->nodeName = key;
         this->isLeaf = true;
-        j.at("parents").get_to(this->parents);
+        j.at("parents").get_to(this->parentsNames);
         LoadProbabilities(j.at("probabilities"));
+        nodeValue = "";
+        visits = 0;
     }
 
     void LoadProbabilities(const nlohmann::json& j) {
@@ -73,6 +82,45 @@ struct Node {
         }
     }
 
+    void LoadPotentialValues() {
+        for (Probability p : probabilities) {
+            //load last key
+            potentialValues.push_back(p.keys.at(p.keys.size() - 1));
+        }
+
+        sort(potentialValues.begin(), potentialValues.end());
+        potentialValues.erase(std::unique(potentialValues.begin(), potentialValues.end()), potentialValues.end());
+
+    }
+
+    void AddParent(Node* node){
+        this->parents.push_back(node);
+    }
+
+    void RemoveParent(Node* node){
+        std::vector<Node*>::iterator p;
+        p = find(this->parents.begin(),this->parents.end(), node);
+
+        this->parents.erase(p);
+    }
+
+    void AddChild(Node* node){
+        this->children.push_back(node);
+    } 
+
+    void RemoveChild(Node* node){
+        //std::vector<Node*>::iterator p;
+        //p = find(this->children.begin(), this->children.end(), node);
+
+        int pos = 0;
+        for (Node* n : this->children) {
+            if (n->nodeName == node->nodeName) break;
+            pos++;
+        }
+
+        this->children.erase(this->children.begin()+pos);
+    }
+ 
     bool CheckValidity() {
         bool pair = true;
         double sum;
@@ -98,13 +146,54 @@ struct Node {
         return true;
     }
 
+    double GetProbForCurrentParents(std::string potentialValue) {
+        std::vector <std::string> parentValues;
+        for (Node* parent : parents) {
+            parentValues.push_back(parent->nodeValue);
+        }
+        parentValues.push_back(potentialValue);
+
+        bool match = true;
+        //check if match
+        for (Probability prob : probabilities) {
+            for (int i = 0; i < parentValues.size(); i++) {
+                if (prob.keys.at(i) != parentValues[i]) break;
+
+                if (i == parentValues.size() - 1) return prob.value;
+
+            }
+        }
+    }
+
+    void SetRandomValue() {
+        int tmp = rand() % 10000;
+        double prob = this->probabilities.at(0).value;
+        int keys_len = this->probabilities.at(0).keys.size();
+        if ((double)(tmp / 10000) > prob) {
+            this->nodeValue = this->probabilities.at(0).keys.at(keys_len - 1);
+        }
+        else {
+            this->nodeValue = this->probabilities.at(1).keys.at(keys_len - 1);
+        }
+    }
+
     void SetLeaf(bool state) {
         this->isLeaf = state;
     }
 
+    void UpdateLeaf() {
+        //If it has no children then it is a leaf
+        if (this->children.empty()) this->isLeaf = true;
+        else this->isLeaf = false;
+    }
+
+    void SetNodeValue(std::string newValue) {
+        this->nodeValue = newValue;
+    }
+
     void Print() {
         std::cout << nodeName << " " << isLeaf << "\n" << "parents : ";
-        for (std::string s : parents) {
+        for (std::string s : parentsNames) {
             std::cout << s << " ";
         }
         std::cout << "\n";
@@ -113,11 +202,15 @@ struct Node {
         }
     }
 
+    std::string PrintName() {
+        return this->nodeName;
+    }
 };
 
 struct Network {
     std::vector <std::string> nodeNames;
     std::vector <Node> nodes;
+    bool valid;
 
     Network(const nlohmann::json& j) {
         j.at("nodes").get_to(this->nodeNames);
@@ -125,13 +218,15 @@ struct Network {
             nodes.push_back(Node(i.value(), i.key()));
         }
 
-        CheckValidity();
+        this->valid = CheckValidity();
     }
 
     bool CheckValidity() {
         //check cycles
-        SetLeaves(this->nodes,this->nodeNames);
+        
         if (!CheckCycles()) return false;
+
+        SetParentsChildren(nodes);
         //check nodes
         for (Node n : nodes) {
             if (!n.CheckValidity()) return false;
@@ -139,51 +234,100 @@ struct Network {
         return true;
     }
 
+    bool IsValid() {
+        return this->valid;
+    }
+
     bool CheckCycles() {
         std::vector <Node> copyNodes = this->nodes;
+        SetParentsChildren(copyNodes);
+        Node *leaf;
         std::vector <std::string> copyNames = this->nodeNames;
+
         bool leafs = false;
         int leaf_pos = 0;
 
         do {
-            leafs = false;
-            leaf_pos = 0;
+
+            //find a leaf, if there are none then return false
             for (Node n : copyNodes) {
+
                 if (n.isLeaf) {
                     leafs = true;
                     break;
                 }
                 leaf_pos++;
             }
+            if (!leafs) {
+                std::cout << "Graph is cyclic!\n";
+                return false;
+            }
+            //remove the leaf
+            //Remove all references in parent nodes
+            leaf = &copyNodes.at(leaf_pos);
+            for (Node* n : leaf->parents) {
+                //n->RemoveChild(leaf);//!!!!!!!!!!!!!!
+                n->children.clear();
+            }
 
-            if (!leafs) return false; //Graph has nodes left but none are leafs, therefore it is cyclic
-            
-            copyNames.erase(copyNames.begin() + FindNode(copyNodes,copyNodes.at(leaf_pos).nodeName));
-            copyNodes.erase(copyNodes.begin() + leaf_pos); //remove leaf
-            
-            SetLeaves(copyNodes,copyNames);
+
+            copyNodes.erase(copyNodes.begin()+leaf_pos);
+
+            //Only 1 node left, it must be a leaf, graph must be acyclic
+            if (copyNodes.size() == 1) return true;
+
+            //return to starting state
+            SetParentsChildren(copyNodes);
+            //SetLeaves(copyNodes);
+            leafs = false;
+            leaf_pos = 0;
 
         }while (!copyNodes.empty());
 
         return true;
     }
 
-    void SetLeaves(std::vector <Node> &nodes, std::vector <std::string> names) {
-        int i;
+    void SetParentsChildren(std::vector <Node> &nodes) {
+        
+        std::vector<std::string>::iterator p;
 
+        //clear nodes
+        for (Node& n : nodes) {
+            n.children.clear();
+            n.parents.clear();
+
+        }
+
+        //For each node, find each parent and set the current node as the parent child, set parent for current node
         for (Node &n : nodes) {
-            n.SetLeaf(true);
-            if (n.parents.empty()) continue;
 
-            for (std::string parent : n.parents) {
-                if (std::find(names.begin(), names.end(), parent) == names.end()) continue;
-                i = FindNode(nodes, parent);
-                nodes.at(i).SetLeaf(false);
+            if (n.parentsNames.empty()) continue;
+
+            for (Node &parent : nodes) {
+                p = find(n.parentsNames.begin(), n.parentsNames.end(), parent.nodeName);
+
+                //nodeName same as parent.nodeName is present in n.parentsNames
+                if (p != n.parentsNames.end()) {
+                    parent.AddChild(&n);
+                    n.AddParent(&parent);
+                }
+                else {
+                    continue;
+                }
             }
+        }
+        SetLeaves(nodes);
+    }
+    
+    void SetLeaves(std::vector <Node> &nodes) {
+        for (Node &n : nodes) {
+           
+            n.UpdateLeaf();
+
         }
     }
 
-    int FindNode(std::vector <Node> nodes, std::string nodeName) {
+    int FindNodeIterator(std::vector <Node> nodes, std::string nodeName) {
         int iterator = 0;
         for (Node n : nodes) {
             if (n.nodeName == nodeName) return iterator;
@@ -203,19 +347,174 @@ struct Network {
         }
     }
 
+    void PrintBlanket(std::string nodeName) {
+
+        std::vector <std::string> blanketNames = GetBlanket(nodeName);
+
+        for (std::string s : blanketNames) {
+            std::cout << s << " ";
+        }
+
+    }
+
+    std::vector <std::string> GetBlanket(std::string nodeName) {
+
+        int nodePos = FindNodeIterator(this->nodes, nodeName);
+        std::vector <std::string> blanketNames;
+
+        Node node = this->nodes.at(nodePos);
+        //print parents
+        for (Node* n : node.parents) {
+            blanketNames.push_back(n->PrintName());
+        }
+
+        //print children
+        for (Node* n : node.children) {
+            blanketNames.push_back(n->PrintName());
+            //print parents of children of node in question
+            for (Node* m : n->parents) {
+                blanketNames.push_back(m->PrintName());
+            }
+        }
+
+        sort(blanketNames.begin(), blanketNames.end());
+        blanketNames.erase(std::unique(blanketNames.begin(), blanketNames.end()), blanketNames.end());
+
+        nodePos = 0;
+        //Remove itself from the blanket
+        for (std::string s : blanketNames) {
+            if (s == nodeName) {
+                blanketNames.erase(blanketNames.begin() + nodePos);
+                break;
+            }
+            else {
+                nodePos++;
+            }
+        }
+
+        return blanketNames;
+
+    }
+
+    //evidence, querry
+    //call MCMC("NodeName=T,NodeName=F","NodeName")
+    void MCMC(std::string evidence, std::string querry,int iterations) {
+
+        std::vector <std::string> evidenceNames;
+        std::vector <std::string> BlanketNames;
+        std::vector <std::string> evidenceNodes = splitString(evidence, ',');
+
+        //Fill values
+            //Get names and values in evidence
+         //each holds "NodeName=T"
+        
+        for (std::string eNode : evidenceNodes) {
+            std::vector <std::string> singleNodeEvidence = splitString(evidenceNodes[0], '=');
+            this->nodes.at(FindNodeIterator(this->nodes, singleNodeEvidence[0])).nodeValue = singleNodeEvidence[1];
+            evidenceNames.push_back(singleNodeEvidence[0]);
+        }
+
+        for (Node n : this->nodes) {
+            if (n.nodeValue != "") continue;
+            
+            n.SetRandomValue();
+        }
+
+        int index;
+        bool present = false;
+        double probP;
+        double probC=1;
+        double probTotal;
+        std::vector <std::string> potentialValues;
+        std::vector <std::string> childPotentialValues;
+
+        std::vector <double> parentsProbs;
+        std::vector <double> childrenProbs;
+        std::vector <double> probs;
+
+        std::string walkingNodeName;
+        std::string savedValue;
+
+        //Random Walking
+        for (int i = 0; i < iterations; i++) {
+            present = false;
+            //Draw random node from network not in evidence
+            do {
+                index = rand() % this->nodes.size();
+
+                //check if node is present in evidence
+                if (std::count(evidenceNames.begin(), evidenceNames.end(), this->nodes.at(index).nodeName)) present = true;
+                else present = false;
+
+            } while(present);
+
+            walkingNodeName = this->nodes.at(index).nodeName;
+
+            //Calculate P for blanket
+                //Calculate Blanket
+            BlanketNames = GetBlanket(walkingNodeName);
+                //For each possible value of node P(X=xj | MB(X))
+            potentialValues = this->nodes.at(index).potentialValues;
+            savedValue = this->nodes.at(index).nodeValue;
+            probs.clear();
+            parentsProbs.clear();
+            childrenProbs.clear();
+            for (std::string potVal : potentialValues) {
+
+                probC = 1;
+                probP = 0;
+                
+
+                //Parents = aP(X=xj|Parents(X)) -> P(X = xj | current values of X's parents)
+                probP = this->nodes.at(index).GetProbForCurrentParents(potVal);
+                parentsProbs.push_back(probP);
+                //GetNodeProbForGivenParents
+                //set X = xj
+                this->nodes.at(index).SetNodeValue(potVal);
+
+
+
+                for (Node* c : this->nodes.at(index).children) {
+                    childPotentialValues = c->potentialValues;
+
+                    probC *= c->GetProbForCurrentParents(c->nodeValue);
+                }
+
+                //push probP and probC onto vector
+
+            }
+
+            //alpha = 1/ sum(parentProbs)
+            //P(X=xj | MB(X)) = alpha * parentProb[j] * childrenProb[j]
+
+            //Set value
+
+            //Increase counter
+        }
+
+    }
 };
 
 
 int main()
 {
+    srand(time(NULL));
     std::ifstream in("C:/Users/JS/source/repos/EARIN5/Test.json");
     nlohmann::json j;
     in >> j;
     
 
     Network bNet(j);
-    bNet.Print();
-    std::cout << bNet.CheckValidity() << "\n";
+    if (!bNet.IsValid()) {
+        
+        std::cout << "Network is invalid...\n";
+        return 0;
+
+    }
+    //bNet.PrintBlanket("burglary");
+    bNet.MCMC("NodeName=T,NodeName=F", "NodeName",1000);
+
+    //std::cout << bNet.CheckValidity() << "\n";
 
     //nlohmann::json j3 = j2.at(0);
     //std::cout << j3.dump() << "\n";

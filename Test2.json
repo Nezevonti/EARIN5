@@ -1,0 +1,49 @@
+{
+  "nodes": [ "Flu", "HighFever", "Headache", "Snot", "Couhg" ],
+  "relations": {
+
+    "Flu": {
+      "parents": [],
+      "probabilities": {
+        "T": 0.05,
+        "F": 0.95
+      }
+    },
+    "HighFever": {
+      "parents": [ "Flu", "Couhg" ],
+      "probabilities": {
+        "T,T": 0.90,
+        "T,F": 0.10,
+        "F,T": 0.20,
+        "F,F": 0.80
+      }
+    },
+    "Headache": {
+      "parents": [ "HighFever" ],
+      "probabilities": {
+        "T,T": 0.90,
+        "T,F": 0.10,
+        "F,T": 0.20,
+        "F,F": 0.80
+      }
+    },
+    "Snot": {
+      "parents": [ "HighFever", "Couhg" ],
+      "probabilities": {
+        "T,T": 0.90,
+        "T,F": 0.10,
+        "F,T": 0.20,
+        "F,F": 0.80
+      }
+    },
+    "Couhg": {
+      "parents": [],
+      "probabilities": {
+        "T,T": 0.90,
+        "T,F": 0.10,
+        "F,T": 0.20,
+        "F,F": 0.80
+      }
+    }
+  }
+}
