@@ -154,15 +154,19 @@ struct Node {
         }
         parentValues.push_back(potentialValue);
 
-        bool match = true;
+        bool match = false;
         //check if match
         for (Probability prob : probabilities) {
-            for (int i = 0; i < parentValues.size(); i++) {
-                if (prob.keys.at(i) != parentValues[i]) break;
-
-                if (i == parentValues.size() - 1) return prob.value;
-
+            //For each probability in this node, check if the keys match
+            for (int i = 0; i < (prob.keys.size());i++) {
+                if (prob.keys[i] != parentValues[i]) {
+                    break;
+                }
+                if (i == (prob.keys.size() - 1)) {
+                    return prob.value;
+                }
             }
+            
         }
     }
 
@@ -335,6 +339,10 @@ struct Network {
             iterator++;
         }
 
+        if (iterator == nodes.size()) {
+            return -1;
+        }
+
         return iterator;
     }
 
@@ -351,6 +359,7 @@ struct Network {
     void PrintBlanket(std::string nodeName) {
 
         std::vector <std::string> blanketNames = GetBlanket(nodeName);
+        if (blanketNames.empty()) return;
 
         for (std::string s : blanketNames) {
             std::cout << s << " ";
@@ -361,7 +370,13 @@ struct Network {
     std::vector <std::string> GetBlanket(std::string nodeName) {
 
         int nodePos = FindNodeIterator(this->nodes, nodeName);
+
         std::vector <std::string> blanketNames;
+
+        if (nodePos == -1) {
+            std::cout << "Invalid name\n";
+            return blanketNames;
+        }
 
         Node node = this->nodes.at(nodePos);
         //print parents
@@ -448,6 +463,11 @@ struct Network {
 
         //Random Walking
         for (int i = 0; i < iterations; i++) {
+
+            if (i % 100 == 0) {
+                std::cout << i << " iterations done...\n";
+            }
+
             present = false;
             //Draw random node from network not in evidence
             do {
@@ -510,12 +530,14 @@ struct Network {
                 probs.push_back(tmp);
             }
             //Set value
+
             double sumProbs = 0;
             for (double p : probs) {
                 sumProbs += p;
             }
-            int randInt = rand() % 100000;
-            double randVal = (randInt*sumProbs) / 100000;
+
+            double randVal = rand() % 10000 / (double)10000;
+            randVal = randVal * sumProbs;
             double offset = 0.0;
             int iter = 0;
             for (double p : probs) {
@@ -527,7 +549,9 @@ struct Network {
                 }
                 iter++;
             }
-            //std::cout << this->nodes.at(index).nodeName << " " << potentialValues[iter] << "\n";
+
+            //std::cout << this->nodes.at(index).nodeName << " " << potentialValues[iter] << ", P() = " << tmp <<"\n";
+
             //Increase counter
             this->nodes.at(index).visits++;
 
@@ -568,11 +592,14 @@ struct Network {
         }
 
         double x;
+        std::cout << "\n\n";
         std::cout << this->nodes.at(qIndex).nodeName << " : ";
         for (int d = 0; d < occurences.size();d++) {
             x = (double)occurences[d] / (double)iterations;
             std::cout << " " << this->nodes.at(qIndex).potentialValues[d] << ":" << occurences[d] << "/" << iterations << "=" << x;
         }
+
+        std::cout << "\n\n";
 
     }
 };
@@ -593,30 +620,21 @@ int main()
         return 0;
 
     }
+
+
+    //Aviable functions : 
+    //PrintBlanket - prints blanket for given node - Network.PrintBlanket("nodeName");
+    //MCMC - MCMC with gibbs sampling - Network.MCMC(string evidence,string querry,int iterations)
+    //querry - nodeName
+    //evidence - "Nodename=Value,Nodename2=Value" i.e.: "burglary=T,alarm=T"
+    //START HERE
+
     //bNet.PrintBlanket("burglary");
-    bNet.MCMC("burglary=T,alarm=T", "earthquake",10000);
-
-    //std::cout << bNet.CheckValidity() << "\n";
-
-    //nlohmann::json j3 = j2.at(0);
-    //std::cout << j3.dump() << "\n";
-    //std::string j2String = j2.dump();
-    //std::vector <std::string> j2vect = splitString(j2String,',')
-
-    //Probability p1(j["probabilities"].at(1));
-    //Network net = j.get<Network>();
+    //bNet.MCMC("burglary=T,alarm=T", "earthquake",10000);
+    bNet.MCMC("John_calls=T,Marry_calls=T", "burglary",10000);
+    //bNet.MCMC("burglary=F,earthquake=T", "alarm",10000);
 
 
 
 }
 
-// Run program: Ctrl + F5 or Debug > Start Without Debugging menu
-// Debug program: F5 or Debug > Start Debugging menu
-
-// Tips for Getting Started: 
-//   1. Use the Solution Explorer window to add/manage files
-//   2. Use the Team Explorer window to connect to source control
-//   3. Use the Output window to see build output and other messages
-//   4. Use the Error List window to view errors
-//   5. Go to Project > Add New Item to create new code files, or Project > Add Existing Item to add existing code files to the project
-//   6. In the future, to open this project again, go to File > Open > Project and select the .sln file
